@@ -1,317 +1,288 @@
-import Phaser from 'phaser'
-import { IDLE_HINT_MS } from '../constants'
-import { ITERATION } from '../iteration'
-import { buildRounds } from '../game/layout'
-import { CountdownTimer } from '../game/CountdownTimer'
-import { RoomBackground } from '../game/RoomBackground'
-import { SlotManager } from '../game/SlotManager'
-import { Tray } from '../game/Tray'
-import { DragController } from '../game/DragController'
-import { MatchSystem } from '../game/MatchSystem'
-import { StarBurst } from '../game/StarBurst'
-import { HandHint } from '../game/HandHint'
-import { ProgressTracker } from '../game/ProgressTracker'
-import { SoundManager } from '../game/SoundManager'
-import { EndCard } from './cta'
-import { bindLifecycle, notifyGameStart, notifyGameEnd } from '../networks'
-import { trackEvent } from '../analytics'
-
-// Orchestrator. Wires the game/ modules, drives round progression, and is the
-// place (with cta.ts) that calls the ad-SDK helpers at the right lifecycle
-// moments. game/ modules themselves never touch the SDK.
-export class GameScene extends Phaser.Scene {
-  private roomBg!: RoomBackground
-  private slots!: SlotManager
-  private tray!: Tray
-  private dragCtl!: DragController
-  private match!: MatchSystem
-  private starBurst!: StarBurst
-  private hand!: HandHint
-  private progress!: ProgressTracker
-  private audioMgr!: SoundManager
-  private endCard!: EndCard
-
-  private roundIndex = 0
-  private currentRoundIds: number[] = []
-  private placedInRound = 0
-  private gated = false
-  private started = false
-  private solvedOnce = false
-  private tutorialDone = false
-  private idleTimer?: Phaser.Time.TimerEvent
-  private rounds: number[][] = []
-  private countdown?: CountdownTimer
-
-  constructor() {
-    super('Game')
-  }
-
-  create(): void {
-    this.createSystems()
-    this.createDragController()
-    this.bindAdLifecycle()
-    this.bindFirstInteraction()
-    this.startInitialRound()
-    this.maybeStartAutoPlay()
-  }
-
-  private createSystems(): void {
-    this.roomBg = new RoomBackground(this)
-    this.slots = new SlotManager(this)
-    this.tray = new Tray(this)
-    this.match = new MatchSystem(this.slots)
-    this.starBurst = new StarBurst(this)
-    this.hand = new HandHint(this)
-    this.audioMgr = new SoundManager(this)
-    this.endCard = new EndCard(this)
-    this.progress = new ProgressTracker(this, () => this.endGame())
-    if (ITERATION.mode === 'time') this.countdown = new CountdownTimer(this)
-  }
-
-  private createDragController(): void {
-    this.dragCtl = new DragController(this, {
-      onStart: () => this.onDragStart(),
-      onMove: (id, x, y) => this.onDragMove(id, x, y),
-      onDrop: (id, x, y) => this.onDrop(id, x, y),
-    })
-  }
-
-  private bindAdLifecycle(): void {
-    // Ad lifecycle: register handlers before bindLifecycle (which may emit cached state).
-    this.game.events.on('ad-pause', this.onAdPause, this)
-    this.game.events.on('ad-resume', this.onAdResume, this)
-    this.game.events.on('ad-mute', this.onAdMute, this)
-    this.game.events.on('ad-volume', this.onAdVolume, this)
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.cleanup, this)
-    bindLifecycle(this)
-  }
-
-  private bindFirstInteraction(): void {
-    // First interaction unlocks audio and starts the game clock/notifier.
-    this.input.on('pointerdown', () => {
-      this.audioMgr.unlock()
-      this.beginPlay()
-      this.resetIdle()
-    })
-  }
-
-  private startInitialRound(): void {
-    this.rounds = buildRounds() // randomized each play
-    trackEvent('DISPLAYED')
-    this.progress.start() // 60s timer (time mode) runs from display
-    this.countdown?.show()
-    this.startRound()
-  }
-
-  private maybeStartAutoPlay(): void {
-    // QA-only: auto-play to fill the room / reach the end card. Guarded by the
-    // URL hash so it never runs in a real placement.
-    if (typeof location !== 'undefined' && location.hash.toLowerCase().includes('auto')) {
-      this.time.delayedCall(1200, () => this.autoStep())
+import Phaser from 'phaser';
+import { IDLE_HINT_MS } from '../constants';
+import { ITERATION } from '../iteration';
+import { createStickerBatches } from '../game/layout';
+import { RoundClock } from '../game/RoundClock';
+import { AlbumRoomBackdrop } from '../game/AlbumRoomBackdrop';
+import { PlacementBoard } from '../game/PlacementBoard';
+import { StickerPalette } from '../game/StickerPalette';
+import { DragInputCoordinator } from '../game/DragInputCoordinator';
+import { SnapJudge } from '../game/SnapJudge';
+import { PlacementBurstPool } from '../game/PlacementBurstPool';
+import { FingerCue } from '../game/FingerCue';
+import { CompletionGate } from '../game/CompletionGate';
+import { AudioDirector } from '../game/AudioDirector';
+import { StorefrontEndCard } from './cta';
+import { bindLifecycle, notifyGameStart, notifyGameEnd } from '../networks';
+import { trackEvent } from '../analytics';
+export class StickerPlayScene extends Phaser.Scene {
+    private roomBackdrop!: AlbumRoomBackdrop;
+    private placementBoard!: PlacementBoard;
+    private palette!: StickerPalette;
+    private dragInput!: DragInputCoordinator;
+    private snapJudge!: SnapJudge;
+    private burstPool!: PlacementBurstPool;
+    private fingerCue!: FingerCue;
+    private completionGate!: CompletionGate;
+    private audio!: AudioDirector;
+    private storefront!: StorefrontEndCard;
+    private batchIndex = 0;
+    private activeStickerIds: number[] = [];
+    private placedInBatch = 0;
+    private endingLocked = false;
+    private playNotified = false;
+    private firstSolveTracked = false;
+    private gestureCueDismissed = false;
+    private idleCueTimer?: Phaser.Time.TimerEvent;
+    private stickerBatches: number[][] = [];
+    private clock?: RoundClock;
+    constructor() {
+        super('Game');
     }
-  }
-
-  private autoStep(): void {
-    if (this.gated) return
-    const ids = this.tray.currentIds()
-    if (!ids.length) {
-      this.time.delayedCall(250, () => this.autoStep())
-      return
+    create(): void {
+        this.buildGameplaySystems();
+        this.wireDragInput();
+        this.wireAdLifecycle();
+        this.wireFirstTap();
+        this.startFirstBatch();
+        this.startAutoSolveIfRequested();
     }
-    this.beginPlay()
-    this.hand.cancel()
-    this.tutorialDone = true
-    this.onCorrect(ids[0])
-    this.time.delayedCall(220, () => this.autoStep())
-  }
-
-  update(): void {
-    this.tray?.syncBadges()
-    if (this.countdown) this.countdown.set(this.progress.remainingSeconds())
-  }
-
-  private onAdPause(): void {
-    this.audioMgr.pause()
-    // Once the end card is up, keep the scene animating (so the CTA keeps
-    // pulsing even after the store opens) — just mute the audio.
-    if (!this.gated && !this.scene.isPaused()) this.scene.pause()
-  }
-  private onAdResume(): void {
-    if (this.scene.isPaused()) this.scene.resume()
-    this.audioMgr.resume()
-  }
-  private onAdMute(muted: boolean): void {
-    this.audioMgr.setAdMuted(muted)
-  }
-  private onAdVolume(v: number): void {
-    this.audioMgr.setHostVolume(v)
-  }
-
-  private beginPlay(): void {
-    if (this.started) return
-    this.started = true
-    notifyGameStart()
-    trackEvent('CHALLENGE_STARTED')
-  }
-
-  // -- round flow ------------------------------------------------------------
-  private startRound(): void {
-    const ids = this.rounds[this.roundIndex]
-    this.currentRoundIds = ids
-    this.placedInRound = 0
-    this.tray.loadRound(ids)
-    this.slots.activate(ids)
-    this.dragCtl.enable(this.tray.itemObjects())
-    this.resetIdle()
-    if (this.roundIndex === 0 && !this.tutorialDone) {
-      this.time.delayedCall(550, () => this.maybeTutorial())
+    private buildGameplaySystems(): void {
+        this.roomBackdrop = new AlbumRoomBackdrop(this);
+        this.placementBoard = new PlacementBoard(this);
+        this.palette = new StickerPalette(this);
+        this.snapJudge = new SnapJudge(this.placementBoard);
+        this.burstPool = new PlacementBurstPool(this);
+        this.fingerCue = new FingerCue(this);
+        this.audio = new AudioDirector(this);
+        this.storefront = new StorefrontEndCard(this);
+        this.completionGate = new CompletionGate(this, () => this.finishPlayable());
+        if (ITERATION.mode === 'time')
+            this.clock = new RoundClock(this);
     }
-  }
-
-  private maybeTutorial(): void {
-    if (this.tutorialDone || this.gated) return
-    const id = this.currentRoundIds[0]
-    const img = this.tray.objectOf(id)
-    const c = this.slots.get(id).center
-    if (img) this.hand.showTutorial(img, c.x, c.y)
-  }
-
-  private onDragStart(): void {
-    this.hand.cancel()
-    this.tutorialDone = true
-    this.beginPlay()
-    this.resetIdle()
-  }
-
-  // As the dragged sticker nears its correct slot, magnet it toward the slot
-  // center and give a small, CONSISTENT pop (not matched to the outline size —
-  // that upscaled big stickers and blurred them). Keeps the art crisp and makes
-  // the lock-on feel satisfying.
-  private onDragMove(id: number, px: number, py: number): void {
-    const img = this.tray.objectOf(id)
-    if (!img) return
-    const slot = this.slots.get(id)
-    if (!slot.active || slot.placed) return
-    const c = slot.center
-    const ds = slot.displaySize
-    const dist = Phaser.Math.Distance.Between(px, py, c.x, c.y)
-    const zone = Math.max(ds.w, ds.h) * 0.7 + 60
-    const rest = (img.getData('restScale') as number) || img.scaleX
-    // Progressive: t=0 at the zone edge, 1 at the slot center. The closer it is,
-    // the harder it magnets onto the slot and the more it grows — so it "locks
-    // on" to the outline rather than just drifting.
-    const t = Phaser.Math.Clamp(1 - dist / zone, 0, 1)
-    img.setScale(Phaser.Math.Linear(img.scaleX, rest * (1.12 + t * 0.22), 0.3))
-    if (t > 0) {
-      img.x = Phaser.Math.Linear(img.x, c.x, t * 0.85)
-      img.y = Phaser.Math.Linear(img.y, c.y, t * 0.85)
+    private wireDragInput(): void {
+        this.dragInput = new DragInputCoordinator(this, {
+            onStart: () => this.handleDragStart(),
+            onMove: (id, x, y) => this.handleDragMove(id, x, y),
+            onDrop: (id, x, y) => this.handleDrop(id, x, y),
+        });
     }
-  }
-
-  private onDrop(id: number, x: number, y: number): void {
-    if (this.gated) return
-    if (this.match.isCorrect(id, x, y)) this.onCorrect(id)
-    else this.onWrong(id)
-  }
-
-  private onCorrect(id: number): void {
-    const c = this.slots.get(id).center
-    const img = this.tray.objectOf(id)
-    if (img) {
-      this.tweens.add({
-        targets: img,
-        x: c.x,
-        y: c.y,
-        duration: 150,
-        ease: 'Sine.easeIn',
-        onComplete: () => this.commitPlacement(id),
-      })
-    } else {
-      this.commitPlacement(id)
+    private wireAdLifecycle(): void {
+        this.game.events.on('ad-pause', this.onAdPause, this);
+        this.game.events.on('ad-resume', this.onAdResume, this);
+        this.game.events.on('ad-mute', this.onAdMute, this);
+        this.game.events.on('ad-volume', this.onAdVolume, this);
+        this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.disposeSceneHooks, this);
+        bindLifecycle(this);
     }
-  }
-
-  private commitPlacement(id: number): void {
-    const c = this.slots.get(id).center
-    this.tray.removeItem(id)
-    this.slots.place(id)
-    this.starBurst.play(c.x, c.y)
-    this.audioMgr.playCorrect()
-    if (!this.solvedOnce) {
-      this.solvedOnce = true
-      trackEvent('CHALLENGE_SOLVED')
+    private wireFirstTap(): void {
+        this.input.on('pointerdown', () => {
+            this.audio.unlock();
+            this.markGameplayStarted();
+            this.scheduleIdleCue();
+        });
     }
-    this.placedInRound += 1
-    this.progress.onPlacement()
-    if (this.gated) return
-    if (this.placedInRound >= this.currentRoundIds.length) this.advanceRound()
-    else this.resetIdle()
-  }
-
-  private advanceRound(): void {
-    this.roundIndex += 1
-    if (this.roundIndex >= this.rounds.length) {
-      this.progress.onAllComplete()
-      return
+    private startFirstBatch(): void {
+        this.stickerBatches = createStickerBatches();
+        trackEvent('DISPLAYED');
+        this.completionGate.start();
+        this.clock?.show();
+        this.startStickerBatch();
     }
-    this.time.delayedCall(450, () => this.startRound())
-  }
-
-  private onWrong(id: number): void {
-    this.audioMgr.playWrong()
-    this.tray.returnItem(id)
-    this.resetIdle()
-  }
-
-  // -- idle hint -------------------------------------------------------------
-  private resetIdle(): void {
-    this.idleTimer?.remove()
-    if (this.gated) return
-    this.idleTimer = this.time.delayedCall(IDLE_HINT_MS, () => this.showIdleHint())
-  }
-
-  private showIdleHint(): void {
-    if (this.gated || this.hand.isActive) return
-    const ids = this.tray.currentIds()
-    if (!ids.length) return
-    const id = ids[0]
-    const img = this.tray.objectOf(id)
-    const c = this.slots.get(id).center
-    if (img) this.hand.armIdle(img, c.x, c.y)
-  }
-
-  // -- end of run ------------------------------------------------------------
-  private endGame(): void {
-    if (this.gated) return
-    this.gated = true
-    this.idleTimer?.remove()
-    this.hand.cancel()
-    this.dragCtl.setEnabled(false)
-    this.countdown?.hide()
-    notifyGameEnd()
-    // End scene shows the room exactly as the player left it (only what they
-    // placed). Hide the tray, crossfade to color, then present the end card.
-    this.tray.setVisible(false)
-    // The store redirect fires on a tap ANYWHERE on the end card; we don't auto-
-    // redirect before it (would navigate away first; networks reject that).
-    this.roomBg.crossfadeToColored()
-    this.time.delayedCall(800, () => this.endCard.show())
-  }
-
-  relayout(): void {
-    this.roomBg.relayout()
-    this.slots.relayout()
-    this.tray.relayout()
-    this.hand.relayout()
-    this.endCard.relayout()
-    this.countdown?.relayout()
-  }
-
-  private cleanup(): void {
-    this.game.events.off('ad-pause', this.onAdPause, this)
-    this.game.events.off('ad-resume', this.onAdResume, this)
-    this.game.events.off('ad-mute', this.onAdMute, this)
-    this.game.events.off('ad-volume', this.onAdVolume, this)
-    this.idleTimer?.remove()
-  }
+    private startAutoSolveIfRequested(): void {
+        if (typeof location !== 'undefined' && location.hash.toLowerCase().includes('auto')) {
+            this.time.delayedCall(1200, () => this.autoPlaceNext());
+        }
+    }
+    private autoPlaceNext(): void {
+        if (this.endingLocked)
+            return;
+        const ids = this.palette.remainingIds();
+        if (!ids.length) {
+            this.time.delayedCall(250, () => this.autoPlaceNext());
+            return;
+        }
+        this.markGameplayStarted();
+        this.fingerCue.cancel();
+        this.gestureCueDismissed = true;
+        this.handleCorrectDrop(ids[0]);
+        this.time.delayedCall(220, () => this.autoPlaceNext());
+    }
+    update(): void {
+        this.palette?.syncBadges();
+        if (this.clock)
+            this.clock.set(this.completionGate.secondsLeft());
+    }
+    private onAdPause(): void {
+        this.audio.pause();
+        if (!this.endingLocked && !this.scene.isPaused())
+            this.scene.pause();
+    }
+    private onAdResume(): void {
+        if (this.scene.isPaused())
+            this.scene.resume();
+        this.audio.resume();
+    }
+    private onAdMute(muted: boolean): void {
+        this.audio.setContainerMute(muted);
+    }
+    private onAdVolume(v: number): void {
+        this.audio.setContainerVolume(v);
+    }
+    private markGameplayStarted(): void {
+        if (this.playNotified)
+            return;
+        this.playNotified = true;
+        notifyGameStart();
+        trackEvent('CHALLENGE_STARTED');
+    }
+    private startStickerBatch(): void {
+        const ids = this.stickerBatches[this.batchIndex];
+        this.activeStickerIds = ids;
+        this.placedInBatch = 0;
+        this.palette.stockForRound(ids);
+        this.placementBoard.revealTargets(ids);
+        this.dragInput.enable(this.palette.draggableItems());
+        this.scheduleIdleCue();
+        if (this.batchIndex === 0 && !this.gestureCueDismissed) {
+            this.time.delayedCall(550, () => this.showOpeningCue());
+        }
+    }
+    private showOpeningCue(): void {
+        if (this.gestureCueDismissed || this.endingLocked)
+            return;
+        const id = this.activeStickerIds[0];
+        const img = this.palette.imageFor(id);
+        const c = this.placementBoard.slotFor(id).center;
+        if (img)
+            this.fingerCue.playGuidedDrag(img, c.x, c.y);
+    }
+    private handleDragStart(): void {
+        this.fingerCue.cancel();
+        this.gestureCueDismissed = true;
+        this.markGameplayStarted();
+        this.scheduleIdleCue();
+    }
+    private handleDragMove(id: number, px: number, py: number): void {
+        const img = this.palette.imageFor(id);
+        if (!img)
+            return;
+        const slot = this.placementBoard.slotFor(id);
+        if (!slot.active || slot.placed)
+            return;
+        const c = slot.center;
+        const ds = slot.displaySize;
+        const dist = Phaser.Math.Distance.Between(px, py, c.x, c.y);
+        const zone = Math.max(ds.w, ds.h) * 0.7 + 60;
+        const rest = (img.getData('restScale') as number) || img.scaleX;
+        const t = Phaser.Math.Clamp(1 - dist / zone, 0, 1);
+        img.setScale(Phaser.Math.Linear(img.scaleX, rest * (1.12 + t * 0.22), 0.3));
+        if (t > 0) {
+            img.x = Phaser.Math.Linear(img.x, c.x, t * 0.85);
+            img.y = Phaser.Math.Linear(img.y, c.y, t * 0.85);
+        }
+    }
+    private handleDrop(id: number, x: number, y: number): void {
+        if (this.endingLocked)
+            return;
+        if (this.snapJudge.canSnap(id, x, y))
+            this.handleCorrectDrop(id);
+        else
+            this.handleMissedDrop(id);
+    }
+    private handleCorrectDrop(id: number): void {
+        const c = this.placementBoard.slotFor(id).center;
+        const img = this.palette.imageFor(id);
+        if (img) {
+            this.tweens.add({
+                targets: img,
+                x: c.x,
+                y: c.y,
+                duration: 150,
+                ease: 'Sine.easeIn',
+                onComplete: () => this.completePlacement(id),
+            });
+        }
+        else {
+            this.completePlacement(id);
+        }
+    }
+    private completePlacement(id: number): void {
+        const c = this.placementBoard.slotFor(id).center;
+        this.palette.consumeItem(id);
+        this.placementBoard.fill(id);
+        this.burstPool.play(c.x, c.y);
+        this.audio.playSnap();
+        if (!this.firstSolveTracked) {
+            this.firstSolveTracked = true;
+            trackEvent('CHALLENGE_SOLVED');
+        }
+        this.placedInBatch += 1;
+        this.completionGate.recordPlacement();
+        if (this.endingLocked)
+            return;
+        if (this.placedInBatch >= this.activeStickerIds.length)
+            this.advanceBatch();
+        else
+            this.scheduleIdleCue();
+    }
+    private advanceBatch(): void {
+        this.batchIndex += 1;
+        if (this.batchIndex >= this.stickerBatches.length) {
+            this.completionGate.finishNow();
+            return;
+        }
+        this.time.delayedCall(450, () => this.startStickerBatch());
+    }
+    private handleMissedDrop(id: number): void {
+        this.audio.playMiss();
+        this.palette.restoreItem(id);
+        this.scheduleIdleCue();
+    }
+    private scheduleIdleCue(): void {
+        this.idleCueTimer?.remove();
+        if (this.endingLocked)
+            return;
+        this.idleCueTimer = this.time.delayedCall(IDLE_HINT_MS, () => this.showIdleCue());
+    }
+    private showIdleCue(): void {
+        if (this.endingLocked || this.fingerCue.isActive)
+            return;
+        const ids = this.palette.remainingIds();
+        if (!ids.length)
+            return;
+        const id = ids[0];
+        const img = this.palette.imageFor(id);
+        const c = this.placementBoard.slotFor(id).center;
+        if (img)
+            this.fingerCue.playIdleCue(img, c.x, c.y);
+    }
+    private finishPlayable(): void {
+        if (this.endingLocked)
+            return;
+        this.endingLocked = true;
+        this.idleCueTimer?.remove();
+        this.fingerCue.cancel();
+        this.dragInput.setEnabled(false);
+        this.clock?.hide();
+        notifyGameEnd();
+        this.palette.setVisible(false);
+        this.roomBackdrop.showCompletedRoom();
+        this.time.delayedCall(800, () => this.storefront.show());
+    }
+    relayout(): void {
+        this.roomBackdrop.relayout();
+        this.placementBoard.relayout();
+        this.palette.relayout();
+        this.fingerCue.relayout();
+        this.storefront.relayout();
+        this.clock?.relayout();
+    }
+    private disposeSceneHooks(): void {
+        this.game.events.off('ad-pause', this.onAdPause, this);
+        this.game.events.off('ad-resume', this.onAdResume, this);
+        this.game.events.off('ad-mute', this.onAdMute, this);
+        this.game.events.off('ad-volume', this.onAdVolume, this);
+        this.idleCueTimer?.remove();
+    }
 }
