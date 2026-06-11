@@ -1,12 +1,21 @@
 import Phaser from 'phaser';
 import { DEPTH, TUTORIAL_DIM_ALPHA } from '../constants';
 import { sd, viewW, viewH } from '../utils/responsive';
+const FULLSCREEN_BLEED = 96;
+const setPageOverlay = (active: boolean): void => {
+    if (typeof document === 'undefined')
+        return;
+    document.documentElement?.classList.toggle('tutorial-overlay-active', active);
+    document.body?.classList.toggle('tutorial-overlay-active', active);
+};
 export class FingerCue {
     private scene: Phaser.Scene;
     private hand: Phaser.GameObjects.Image;
     private dim?: Phaser.GameObjects.Rectangle;
     private tween?: Phaser.Tweens.Tween;
     private raised?: Phaser.GameObjects.Image;
+    private target?: Phaser.GameObjects.Image;
+    private destination?: { x: number; y: number };
     private active = false;
     constructor(scene: Phaser.Scene) {
         this.scene = scene;
@@ -18,6 +27,9 @@ export class FingerCue {
     }
     get isActive(): boolean {
         return this.active;
+    }
+    get stickerId(): number | undefined {
+        return this.target?.getData('stickerId') as number | undefined;
     }
     private animate(fromX: number, fromY: number, toX: number, toY: number): void {
         this.hand.setVisible(true).setPosition(fromX, fromY).setAlpha(1);
@@ -34,23 +46,36 @@ export class FingerCue {
             onRepeat: () => this.hand.setPosition(fromX, fromY),
         });
     }
+    private begin(target: Phaser.GameObjects.Image, slotX: number, slotY: number): void {
+        this.target = target;
+        this.destination = { x: slotX, y: slotY };
+        this.animate(target.x, target.y, slotX, slotY);
+    }
     playGuidedDrag(target: Phaser.GameObjects.Image, slotX: number, slotY: number): void {
         if (this.active)
             return;
         this.active = true;
         this.dim = this.scene.add
-            .rectangle(viewW() / 2, viewH() / 2, viewW(), viewH(), 0x000000, TUTORIAL_DIM_ALPHA)
+            .rectangle(-FULLSCREEN_BLEED, -FULLSCREEN_BLEED, viewW() + FULLSCREEN_BLEED * 2, viewH() + FULLSCREEN_BLEED * 2, 0x000000, TUTORIAL_DIM_ALPHA)
+            .setOrigin(0, 0)
             .setDepth(DEPTH.DIM)
             .setInteractive();
+        setPageOverlay(true);
         this.raised = target;
         target.setDepth(DEPTH.DIM + 1);
-        this.animate(target.x, target.y, slotX, slotY);
+        this.begin(target, slotX, slotY);
     }
     playIdleCue(target: Phaser.GameObjects.Image, slotX: number, slotY: number): void {
         if (this.active)
             return;
         this.active = true;
-        this.animate(target.x, target.y, slotX, slotY);
+        this.begin(target, slotX, slotY);
+    }
+    retarget(slotX: number, slotY: number): void {
+        if (!this.active || !this.target?.active)
+            return;
+        this.destination = { x: slotX, y: slotY };
+        this.animate(this.target.x, this.target.y, slotX, slotY);
     }
     cancel(): void {
         if (!this.active)
@@ -61,11 +86,14 @@ export class FingerCue {
         this.hand.setVisible(false);
         this.raised?.setDepth(DEPTH.TRAY_ITEM);
         this.raised = undefined;
+        this.target = undefined;
+        this.destination = undefined;
         this.dim?.destroy();
         this.dim = undefined;
+        setPageOverlay(false);
     }
     relayout(): void {
         if (this.dim)
-            this.dim.setPosition(viewW() / 2, viewH() / 2).setSize(viewW(), viewH());
+            this.dim.setPosition(-FULLSCREEN_BLEED, -FULLSCREEN_BLEED).setSize(viewW() + FULLSCREEN_BLEED * 2, viewH() + FULLSCREEN_BLEED * 2);
     }
 }

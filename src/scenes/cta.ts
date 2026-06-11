@@ -3,6 +3,13 @@ import { DEPTH } from '../constants';
 import { sd, viewW, viewH } from '../utils/responsive';
 import { triggerCTA, notifyGameClose } from '../networks';
 import { trackEvent } from '../analytics';
+const FULLSCREEN_BLEED = 96;
+const setPageOverlay = (active: boolean): void => {
+    if (typeof document === 'undefined')
+        return;
+    document.documentElement?.classList.toggle('endcard-overlay-active', active);
+    document.body?.classList.toggle('endcard-overlay-active', active);
+};
 export class StorefrontEndCard {
     private scene: Phaser.Scene;
     private dim?: Phaser.GameObjects.Rectangle;
@@ -23,6 +30,7 @@ export class StorefrontEndCard {
             return;
         this.shown = true;
         trackEvent('ENDCARD_SHOWN');
+        setPageOverlay(true);
         this.createBackdrop();
         this.createContent();
         this.createInputCatcher();
@@ -31,7 +39,8 @@ export class StorefrontEndCard {
     }
     private createBackdrop(): void {
         this.dim = this.scene.add
-            .rectangle(viewW() / 2, viewH() / 2, viewW(), viewH(), 0x1b1030, 0.55)
+            .rectangle(-FULLSCREEN_BLEED, -FULLSCREEN_BLEED, viewW() + FULLSCREEN_BLEED * 2, viewH() + FULLSCREEN_BLEED * 2, 0x1b1030, 0.55)
+            .setOrigin(0, 0)
             .setDepth(DEPTH.ENDCARD);
     }
     private createContent(): void {
@@ -40,7 +49,8 @@ export class StorefrontEndCard {
     }
     private createInputCatcher(): void {
         this.input = this.scene.add
-            .rectangle(viewW() / 2, viewH() / 2, viewW(), viewH(), 0x000000, 0.001)
+            .rectangle(-FULLSCREEN_BLEED, -FULLSCREEN_BLEED, viewW() + FULLSCREEN_BLEED * 2, viewH() + FULLSCREEN_BLEED * 2, 0x000000, 0.001)
+            .setOrigin(0, 0)
             .setDepth(DEPTH.ENDCARD_INPUT)
             .setInteractive({ useHandCursor: true });
         this.input.on('pointerdown', () => this.redirectToStore());
@@ -84,8 +94,10 @@ export class StorefrontEndCard {
         if (!this.shown)
             return;
         const cx = viewW() / 2;
-        this.dim?.setPosition(cx, viewH() / 2).setSize(viewW(), viewH());
-        this.input?.setPosition(cx, viewH() / 2).setSize(viewW(), viewH());
+        const fullW = viewW() + FULLSCREEN_BLEED * 2;
+        const fullH = viewH() + FULLSCREEN_BLEED * 2;
+        this.dim?.setPosition(-FULLSCREEN_BLEED, -FULLSCREEN_BLEED).setSize(fullW, fullH);
+        this.input?.setPosition(-FULLSCREEN_BLEED, -FULLSCREEN_BLEED).setSize(fullW, fullH);
         if (this.logo) {
             this.logo.setPosition(cx, viewH() * 0.4);
             const w = sd(560);

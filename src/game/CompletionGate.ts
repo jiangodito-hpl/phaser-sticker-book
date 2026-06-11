@@ -11,9 +11,9 @@ export class CompletionGate {
         this.closePlayable = closePlayable;
     }
     start(): void {
-        if (ITERATION.mode === 'time' && ITERATION.limit) {
-            this.timer = this.scene.time.delayedCall(ITERATION.limit * 1000, () => this.gate());
-        }
+        if (ITERATION.mode !== 'time' || !ITERATION.limit || this.timer || this.closed)
+            return;
+        this.timer = this.scene.time.delayedCall(ITERATION.limit * 1000, () => this.gate());
     }
     recordPlacement(): void {
         this.placements += 1;
@@ -38,6 +38,8 @@ export class CompletionGate {
         return this.closed;
     }
     secondsLeft(): number {
-        return this.timer ? this.timer.getRemainingSeconds() : 0;
+        if (this.timer)
+            return this.timer.getRemainingSeconds();
+        return ITERATION.mode === 'time' && ITERATION.limit && !this.closed ? ITERATION.limit : 0;
     }
 }

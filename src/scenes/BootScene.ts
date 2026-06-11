@@ -24,6 +24,7 @@ export class AssetBootScene extends Phaser.Scene {
         this.load.audio('sfxFinished', AUDIO.sfxFinished);
     }
     create(): void {
+        document.getElementById('loading-screen')?.remove();
         this.scene.start('Game');
     }
 }

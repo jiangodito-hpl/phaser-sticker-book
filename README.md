@@ -32,7 +32,7 @@ no runtime network requests.
 | Length  | End card appears after        |
 |---------|-------------------------------|
 | `10clk` | 10 successful placements      |
-| `60sec` | 60 seconds (from display)     |
+| `60sec` | 60 seconds from first drag     |
 | `full`  | the whole room is completed   |
 
 ## Networks

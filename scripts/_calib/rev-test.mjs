@@ -17,7 +17,7 @@ async function shot(file, waitMs, out) {
   return errs.length
 }
 
-// 60sec countdown (should show ~0:56 after ~4s)
+// 60sec countdown stays at 1:00 until the first drag starts.
 const e1 = await shot(url('dist/60sec.html'), 4000, 'scripts/_calib/rev-60sec.png')
 // 10clk end scene (auto fills, gate at 10, full room behind end card)
 const e2 = await shot(url('dist/10clk.html') + '#auto', 9000, 'scripts/_calib/rev-10clk-end.png')

@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { DEPTH, TRAY_H, DESIGN_W, DESIGN_H } from '../constants';
 import { texKey } from '../assets';
-import { sx, sy, sd, viewW } from '../utils/responsive';
+import { sx, sy, sd, viewW, viewH } from '../utils/responsive';
 const ITEM_SIZE = 250;
 interface StickerPaletteItem {
     id: number;
@@ -20,18 +20,24 @@ export class StickerPalette {
     private items = new Map<number, StickerPaletteItem>();
     constructor(scene: Phaser.Scene) {
         this.scene = scene;
-        this.bg = scene.add.image(0, 0, 'trayBg').setOrigin(0.5, 1).setDepth(DEPTH.TRAY_BG);
+        this.bg = scene.add.image(0, 0, 'trayBg').setOrigin(0.5, 0).setDepth(DEPTH.TRAY_BG);
         this.relayout();
     }
     private itemDisplay(): PaletteItemSize {
         return { w: sd(ITEM_SIZE), h: sd(ITEM_SIZE * (343 / 339)) };
+    }
+    private trayTop(): number {
+        return sy(DESIGN_H - TRAY_H);
+    }
+    private trayHeight(): number {
+        return Math.max(sd(TRAY_H), viewH() - this.trayTop());
     }
     private homeFor(index: number, count: number): {
         x: number;
         y: number;
     } {
         const cell = DESIGN_W / count;
-        return { x: sx(cell * (index + 0.5)), y: sy(DESIGN_H - TRAY_H / 2) };
+        return { x: sx(cell * (index + 0.5)), y: this.trayTop() + this.trayHeight() / 2 };
     }
     private makeBadge(id: number): Phaser.GameObjects.Container {
         const circle = this.scene.add.circle(0, 0, 40, 0xffffff).setStrokeStyle(5, 0x000000);
@@ -143,7 +149,7 @@ export class StickerPalette {
         }
     }
     relayout(): void {
-        this.bg.setPosition(viewW() / 2, sy(DESIGN_H)).setDisplaySize(viewW(), sd(TRAY_H));
+        this.bg.setPosition(viewW() / 2, this.trayTop()).setDisplaySize(viewW(), this.trayHeight());
         const { w, h } = this.itemDisplay();
         const ids = [...this.items.keys()];
         for (let index = 0; index < ids.length; index++) {

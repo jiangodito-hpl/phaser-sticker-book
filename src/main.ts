@@ -37,8 +37,8 @@ function applySize(): void {
     const { w, h } = viewportSize();
     lastW = w;
     lastH = h;
-    const cw = Math.round(w * DPR);
-    const ch = Math.round(h * DPR);
+    const cw = Math.ceil(w * DPR);
+    const ch = Math.ceil(h * DPR);
     game.scale.resize(cw, ch);
     game.canvas.style.width = `${w}px`;
     game.canvas.style.height = `${h}px`;
@@ -92,7 +92,7 @@ async function boot(): Promise<void> {
         type: Phaser.AUTO,
         transparent: true,
         parent,
-        scale: { mode: Phaser.Scale.NONE, width: Math.round(w * DPR), height: Math.round(h * DPR) },
+        scale: { mode: Phaser.Scale.NONE, width: Math.ceil(w * DPR), height: Math.ceil(h * DPR) },
         render: { antialias: true, pixelArt: false },
         scene: [AssetBootScene, StickerPlayScene],
     });

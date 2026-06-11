@@ -78,14 +78,12 @@ export class StickerPlayScene extends Phaser.Scene {
     private wireFirstTap(): void {
         this.input.on('pointerdown', () => {
             this.audio.unlock();
-            this.markGameplayStarted();
             this.scheduleIdleCue();
         });
     }
     private startFirstBatch(): void {
         this.stickerBatches = createStickerBatches();
         trackEvent('DISPLAYED');
-        this.completionGate.start();
         this.clock?.show();
         this.startStickerBatch();
     }
@@ -161,6 +159,7 @@ export class StickerPlayScene extends Phaser.Scene {
         this.fingerCue.cancel();
         this.gestureCueDismissed = true;
         this.markGameplayStarted();
+        this.completionGate.start();
         this.scheduleIdleCue();
     }
     private handleDragMove(id: number, px: number, py: number): void {
@@ -266,6 +265,7 @@ export class StickerPlayScene extends Phaser.Scene {
         this.dragInput.setEnabled(false);
         this.clock?.hide();
         notifyGameEnd();
+        this.audio.playComplete();
         this.palette.setVisible(false);
         this.roomBackdrop.showCompletedRoom();
         this.time.delayedCall(800, () => this.storefront.show());
@@ -275,8 +275,16 @@ export class StickerPlayScene extends Phaser.Scene {
         this.placementBoard.relayout();
         this.palette.relayout();
         this.fingerCue.relayout();
+        this.retargetFingerCue();
         this.storefront.relayout();
         this.clock?.relayout();
+    }
+    private retargetFingerCue(): void {
+        const id = this.fingerCue.stickerId;
+        if (id === undefined)
+            return;
+        const slot = this.placementBoard.slotFor(id);
+        this.fingerCue.retarget(slot.center.x, slot.center.y);
     }
     private disposeSceneHooks(): void {
         this.game.events.off('ad-pause', this.onAdPause, this);
