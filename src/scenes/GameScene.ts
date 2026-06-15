@@ -184,29 +184,45 @@ export class StickerPlayScene extends Phaser.Scene {
     private handleDrop(id: number, x: number, y: number): void {
         if (this.endingLocked)
             return;
+        const endAfterFeedback = this.completionGate.recordMove();
         if (this.snapJudge.canSnap(id, x, y))
-            this.handleCorrectDrop(id);
+            this.handleCorrectDrop(id, endAfterFeedback);
         else
-            this.handleMissedDrop(id);
+            this.handleMissedDrop(id, endAfterFeedback);
     }
-    private handleCorrectDrop(id: number): void {
+    private handleCorrectDrop(id: number, endAfterFeedback = false): void {
         const c = this.placementBoard.slotFor(id).center;
         const img = this.palette.imageFor(id);
         if (img) {
+            const restScale = (img.getData('restScale') as number) || img.scaleX;
+            img.setAngle(Phaser.Math.Between(-8, 8));
             this.tweens.add({
                 targets: img,
                 x: c.x,
                 y: c.y,
-                duration: 150,
-                ease: 'Sine.easeIn',
-                onComplete: () => this.completePlacement(id),
+                angle: img.angle * -0.35,
+                scaleX: restScale * 1.04,
+                scaleY: restScale * 0.96,
+                duration: 260,
+                ease: 'Sine.easeInOut',
+                onComplete: () => {
+                    this.tweens.add({
+                        targets: img,
+                        angle: 0,
+                        scaleX: restScale,
+                        scaleY: restScale,
+                        duration: 150,
+                        ease: 'Sine.easeOut',
+                        onComplete: () => this.completePlacement(id, endAfterFeedback),
+                    });
+                },
             });
         }
         else {
-            this.completePlacement(id);
+            this.completePlacement(id, endAfterFeedback);
         }
     }
-    private completePlacement(id: number): void {
+    private completePlacement(id: number, endAfterFeedback = false): void {
         const c = this.placementBoard.slotFor(id).center;
         this.palette.consumeItem(id);
         this.placementBoard.fill(id);
@@ -220,6 +236,10 @@ export class StickerPlayScene extends Phaser.Scene {
         this.completionGate.recordPlacement();
         if (this.endingLocked)
             return;
+        if (endAfterFeedback) {
+            this.time.delayedCall(240, () => this.completionGate.finishNow());
+            return;
+        }
         if (this.placedInBatch >= this.activeStickerIds.length)
             this.advanceBatch();
         else
@@ -233,9 +253,24 @@ export class StickerPlayScene extends Phaser.Scene {
         }
         this.time.delayedCall(450, () => this.startStickerBatch());
     }
-    private handleMissedDrop(id: number): void {
+    private handleMissedDrop(id: number, endAfterFeedback = false): void {
         this.audio.playMiss();
+        const img = this.palette.imageFor(id);
+        if (img) {
+            this.tweens.add({
+                targets: img,
+                angle: { from: -4, to: 4 },
+                duration: 70,
+                yoyo: true,
+                repeat: 1,
+                ease: 'Sine.easeInOut',
+            });
+        }
         this.palette.restoreItem(id);
+        if (endAfterFeedback) {
+            this.time.delayedCall(300, () => this.completionGate.finishNow());
+            return;
+        }
         this.scheduleIdleCue();
     }
     private scheduleIdleCue(): void {
@@ -267,6 +302,7 @@ export class StickerPlayScene extends Phaser.Scene {
         notifyGameEnd();
         this.audio.playComplete();
         this.palette.setVisible(false);
+        this.placementBoard.fillAll();
         this.roomBackdrop.showCompletedRoom();
         this.time.delayedCall(800, () => this.storefront.show());
     }

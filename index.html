@@ -58,80 +58,71 @@
         position: fixed;
         inset: 0;
         z-index: 2;
-        display: flex;
+        display: grid;
         align-items: center;
         justify-content: center;
-        background: #f4ead2;
+        background: #1b1030;
+        font-family: Arial, sans-serif;
       }
-      .phone {
-        --screen-clr: #0d85aa;
-        --border-clr: #29536d;
-        --loader-clr: #cce3de;
-        background-color: var(--screen-clr);
-        height: min(13rem, 48vh);
-        aspect-ratio: 10 / 16;
-        border-radius: 0.5rem;
-        border: 5px solid var(--border-clr);
-        border-top: 10px solid var(--border-clr);
-        border-bottom: 10px solid var(--border-clr);
+      .loading-endcard {
+        width: min(78vw, 360px);
+        min-height: min(72vh, 560px);
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 1rem;
-        animation: shake 0.5s infinite linear;
-        position: relative;
+        gap: clamp(18px, 4vh, 34px);
       }
-      .phone::after {
-        content: "";
-        position: absolute;
-        top: -7px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 1rem;
-        height: 5px;
-        background-color: var(--loader-clr);
-        border-radius: 0.5rem;
+      .loading-endcard__logo {
+        width: min(54vw, 260px);
+        height: auto;
+        display: block;
+        animation: loading-logo 1.2s infinite ease-in-out;
       }
-      .loader {
-        border: 10px dashed var(--loader-clr);
-        width: 2rem;
-        height: 2rem;
-        padding: 1.7rem;
-        border-radius: 50%;
-        animation: loading 2s infinite ease-in-out;
+      .loading-progress {
+        width: min(64vw, 310px);
+        height: 12px;
+        border: 2px solid rgba(255, 255, 255, 0.9);
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.18);
       }
-      .text {
-        color: var(--loader-clr);
-        font-family: Arial, sans-serif;
+      .loading-progress__bar {
+        width: 0%;
+        height: 100%;
+        border-radius: inherit;
+        background: #ffffff;
+        transition: width 120ms ease-out;
+      }
+      .loading-progress__text {
+        min-height: 20px;
+        color: #ffffff;
+        font-size: 16px;
         font-weight: 700;
       }
-      @keyframes loading {
-        0% {
-          rotate: 0deg;
-        }
-        100% {
-          rotate: 360deg;
-        }
+      .loading-endcard__button {
+        width: min(60vw, 300px);
+        height: auto;
+        display: block;
+        opacity: 0.92;
+        animation: loading-button 900ms infinite ease-in-out;
       }
-      @keyframes shake {
-        0% {
-          rotate: 0deg;
-        }
-        10% {
-          rotate: 0.5deg;
-        }
-        20% {
-          rotate: 0deg;
-        }
-        30% {
-          rotate: -0.5deg;
+      @keyframes loading-logo {
+        0%,
+        100% {
+          transform: translateY(0) rotate(-1deg);
         }
         50% {
-          rotate: 0deg;
+          transform: translateY(-8px) rotate(1deg);
         }
+      }
+      @keyframes loading-button {
+        0%,
         100% {
-          rotate: 0deg;
+          transform: scale(1);
+        }
+        50% {
+          transform: scale(1.04);
         }
       }
       canvas {
@@ -142,9 +133,13 @@
   </head>
   <body>
     <div id="loading-screen" aria-label="Loading">
-      <div class="phone">
-        <span class="loader"></span>
-        <span class="text">Loading...</span>
+      <div class="loading-endcard">
+        <img id="loading-logo" class="loading-endcard__logo" alt="" />
+        <div class="loading-progress" aria-hidden="true">
+          <div id="loading-progress-bar" class="loading-progress__bar"></div>
+        </div>
+        <div id="loading-progress-text" class="loading-progress__text">0%</div>
+        <img id="loading-cta" class="loading-endcard__button" alt="" />
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

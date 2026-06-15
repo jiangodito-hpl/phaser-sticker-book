@@ -4,6 +4,7 @@ export class CompletionGate {
     private readonly scene: Phaser.Scene;
     private readonly closePlayable: () => void;
     private placements = 0;
+    private moves = 0;
     private closed = false;
     private timer?: Phaser.Time.TimerEvent;
     constructor(scene: Phaser.Scene, closePlayable: () => void) {
@@ -15,11 +16,14 @@ export class CompletionGate {
             return;
         this.timer = this.scene.time.delayedCall(ITERATION.limit * 1000, () => this.gate());
     }
+    recordMove(): boolean {
+        if (this.closed)
+            return true;
+        this.moves += 1;
+        return ITERATION.mode === 'clicks' && !!ITERATION.limit && this.moves >= ITERATION.limit;
+    }
     recordPlacement(): void {
         this.placements += 1;
-        if (ITERATION.mode === 'clicks' && ITERATION.limit && this.placements >= ITERATION.limit) {
-            this.gate();
-        }
     }
     finishNow(): void {
         this.close();

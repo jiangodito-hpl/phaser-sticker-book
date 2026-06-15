@@ -21,6 +21,11 @@ export class PlacementBoard {
     fill(id: number): void {
         this.slotFor(id).fill();
     }
+    fillAll(): void {
+        for (const slot of this.slots.values())
+            if (!slot.placed)
+                slot.fill();
+    }
     pendingSlots(): StickerSlot[] {
         const out: StickerSlot[] = [];
         for (const slot of this.slots.values())

@@ -92,9 +92,14 @@ export class StickerPalette {
     private syncBadge(it: StickerPaletteItem): void {
         const dw = it.img.displayWidth;
         const dh = it.img.displayHeight;
-        it.badge.setScale(dw / ITEM_SIZE);
-        it.badge.setPosition(it.img.x + dw * 0.3, it.img.y - dh * 0.32);
-        it.badge.setDepth(it.img.depth - 1);
+        const badgeScale = dw / ITEM_SIZE;
+        const gap = sd(10);
+        const rightX = it.img.x + dw * 0.34 + gap;
+        const leftX = it.img.x - dw * 0.34 - gap;
+        const x = rightX <= viewW() - sd(36) ? rightX : leftX;
+        it.badge.setScale(badgeScale);
+        it.badge.setPosition(x, it.img.y - dh * 0.34 - gap);
+        it.badge.setDepth(it.img.depth + 1);
         it.badge.setVisible(it.img.visible);
     }
     syncBadges(): void {
@@ -122,6 +127,7 @@ export class StickerPalette {
             y: it.homeY,
             scaleX: w / it.img.width,
             scaleY: h / it.img.height,
+            angle: 0,
             duration: 260,
             ease: 'Back.easeOut',
         });

@@ -79,23 +79,36 @@ export class StickerSlot {
         this.layoutImage(this.colored);
         if (!animate)
             return;
-        const t = this.colored.scaleX;
-        this.colored.setScale(t * 0.2);
+        const targetX = this.colored.x;
+        const targetY = this.colored.y;
+        const targetScaleX = this.colored.scaleX;
+        const targetScaleY = this.colored.scaleY;
+        const startAngle = Phaser.Math.Between(-10, 10);
+        this.colored
+            .setPosition(targetX + sd(10), targetY - sd(24))
+            .setAlpha(0.88)
+            .setAngle(startAngle)
+            .setScale(targetScaleX * 1.06, targetScaleY * 0.94);
         this.scene.tweens.add({
             targets: this.colored,
-            scaleX: t * 1.18,
-            scaleY: t * 1.18,
-            duration: 190,
+            x: targetX,
+            y: targetY,
+            alpha: 1,
+            angle: -startAngle * 0.28,
+            scaleX: targetScaleX * 0.98,
+            scaleY: targetScaleY * 1.02,
+            duration: 260,
             ease: 'Quad.easeOut',
             onComplete: () => {
                 if (!this.colored)
                     return;
                 this.scene.tweens.add({
                     targets: this.colored,
-                    scaleX: t,
-                    scaleY: t,
-                    duration: 180,
-                    ease: 'Quad.easeInOut',
+                    angle: 0,
+                    scaleX: targetScaleX,
+                    scaleY: targetScaleY,
+                    duration: 220,
+                    ease: 'Sine.easeOut',
                 });
             },
         });
